@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for live community sessions every minute
+
+[Timer]
+# 20 s past each minute, after discord-voice-live has written voice.json
+OnCalendar=*-*-* *:*:20
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

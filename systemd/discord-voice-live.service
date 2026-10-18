@@ -1,0 +1,39 @@
+[Unit]
+Description=Discord voice presence (public server widget -> head counts)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=dvoice
+Group=dvoice
+EnvironmentFile=/etc/discord-voice-live/voice.env
+ExecStart=/usr/bin/python3 -B /usr/local/lib/discord-voice-live/discord_voice_live.py
+TimeoutStartSec=30
+UMask=0022
+# Read-only system; the only writable path (the public folder) is set by deploy/install.sh in
+# /etc/systemd/system/discord-voice-live.service.d/output.conf
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=

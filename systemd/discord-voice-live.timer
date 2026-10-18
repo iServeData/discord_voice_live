@@ -1,0 +1,11 @@
+[Unit]
+Description=Run discord-voice-live every 60 seconds
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=discord-voice-live.service
+
+[Install]
+WantedBy=timers.target

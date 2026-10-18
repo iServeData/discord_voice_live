@@ -1,0 +1,41 @@
+[Unit]
+Description=Announce live community sessions in Discord (webhook)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+StateDirectory=voice-live-announce
+StateDirectoryMode=0700
+EnvironmentFile=/etc/discord-voice-live/announce.env
+Environment=EVENTS_FILE=/etc/discord-voice-live/events.json
+ExecStart=/usr/bin/python3 -B /usr/local/lib/discord-voice-live/voice_live_announce.py
+TimeoutStartSec=60
+UMask=0077
+# Read-only system, no extra privileges, outbound HTTPS only.
+# VOICE_FILE is set by deploy/install.sh in voice-live-announce.service.d/voice_file.conf
+RestrictAddressFamilies=AF_INET AF_INET6
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=

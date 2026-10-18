@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy to /etc/discord-voice-live/events.json. Times are wall-clock in this timezone, so daylight saving is handled.",
+  "timezone": "America/Los_Angeles",
+  "events": {
+    "tactical": {
+      "title": "Tactical night",
+      "voice_group": "tactical",
+      "slots": [
+        { "days": ["sat", "sun", "mon", "tue", "wed", "thu"], "time": "18:15" },
+        { "days": ["sat"], "time": "10:00" }
+      ],
+      "early_minutes": 15,
+      "window_minutes": 30,
+      "cap_minutes": 120,
+      "grace_minutes": 10,
+      "channels": ["000000000000000021", "000000000000000022"],
+      "url": "https://example.org/tactical/",
+      "server_status_file": "/var/www/example/wardogs/data/status.json",
+      "seed_goal": 20
+    },
+    "friday": {
+      "title": "Friday game night",
+      "slots": [{ "days": ["fri"], "time": "19:00" }],
+      "early_minutes": 15,
+      "window_minutes": 240,
+      "cap_minutes": 420,
+      "url": "https://example.org/friday/",
+      "enabled": false
+    }
+  }
+}

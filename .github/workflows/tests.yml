@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install (hash-checked)
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes --no-deps -r requirements-dev.lock
+      - name: Tests
+        run: python -m pytest -q -p no:cacheprovider
+      - name: No private values in the code
+        env:
+          PRIVATE_TERMS: ${{ vars.PRIVATE_TERMS }}
+        run: python tools/check_generic.py
+      - name: Shell scripts parse
+        run: for f in deploy/*.sh; do bash -n "$f"; done
+      - name: systemd units are valid
+        run: |
+          sudo install -D -m 755 discord_voice_live.py /usr/local/lib/discord-voice-live/discord_voice_live.py
+          sudo install -D -m 755 voice_live_announce.py /usr/local/lib/discord-voice-live/voice_live_announce.py
+          sudo install -D -m 644 config/voice.env.example /etc/discord-voice-live/voice.env
+          sudo install -D -m 600 config/announce.env.example /etc/discord-voice-live/announce.env
+          sudo useradd --system dvoice
+          systemd-analyze verify systemd/*.service systemd/*.timer
+      - name: Example events file is valid
+        run: |
+          EVENTS_FILE=config/events.json.example WEBHOOK_URL=https://discord.com/api/webhooks/0/x \
+            python voice_live_announce.py --check
