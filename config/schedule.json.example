@@ -1,0 +1,53 @@
+{
+  "_comment": "Optional shared schedule, read by a website and by events.json via \"schedule_file\". Same layout as events.json; keys the announcer doesn't use (like \"calendar\") are ignored.",
+  "timezone": "America/Los_Angeles",
+  "events": {
+    "tactical": {
+      "title": "Tactical night",
+      "slots": [
+        {
+          "days": [
+            "thu"
+          ],
+          "time": "19:00"
+        },
+        {
+          "days": [
+            "sat"
+          ],
+          "time": "10:00"
+        }
+      ],
+      "early_minutes": 15,
+      "window_minutes": 30,
+      "cap_minutes": 120,
+      "grace_minutes": 10,
+      "channels": [
+        "000000000000000021",
+        "000000000000000022"
+      ],
+      "url": "https://example.org/tactical/",
+      "seed_goal": 20,
+      "calendar": {
+        "summary": "Tactical night (example)"
+      }
+    },
+    "friday": {
+      "title": "Friday game night",
+      "slots": [
+        {
+          "days": [
+            "fri"
+          ],
+          "time": "19:00"
+        }
+      ],
+      "window_minutes": 240,
+      "cap_minutes": 420,
+      "channels": [
+        "000000000000000011"
+      ],
+      "url": "https://example.org/friday/"
+    }
+  }
+}

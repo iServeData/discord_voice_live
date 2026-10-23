@@ -12,13 +12,18 @@ Runs once per invocation (systemd timer, every 60 s). Standard library only.
 Settings (environment, see /etc/discord-voice-live/voice.env):
   VOICE_GUILD_ID      Discord server ID
   VOICE_GROUPS        "name=channelId[,channelId];name=channelId"
+  VOICE_SCHEDULE_FILE optional shared schedule file (JSON). Every event in it with "channels"
+                      becomes a group (named by "voice_group", else the event name). A group
+                      named in both places is an error, so each channel list lives in one place.
+                      If the file is briefly missing or broken, the groups from the last
+                      voice.json are kept and the problem is logged.
   VOICE_OUT           output file (default /var/www/html/live/voice.json)
   VOICE_GRACE_SECONDS gap that still counts as one session (default 600 = 10 min)
 """
 import calendar, json, os, re, sys, tempfile, time, urllib.request, urllib.error
 
 MAX_BYTES = 1_000_000
-UA = "discord-voice-live/1.1 (+https://github.com/iServeData/discord_voice_live)"
+UA = "discord-voice-live/1.2 (+https://github.com/iServeData/discord_voice_live)"
 SNOWFLAKE = re.compile(r"^\d{17,20}$")
 NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
@@ -49,6 +54,43 @@ def parse_groups(spec):
     if not groups:
         raise ValueError("VOICE_GROUPS is empty")
     return groups
+
+
+def schedule_groups(path):
+    """{group: [channel ids]} from a shared schedule file."""
+    with open(path, "r", encoding="utf-8") as f:
+        doc = json.load(f)
+    if not isinstance(doc, dict) or not isinstance(doc.get("events"), dict):
+        raise ValueError("%s: needs an \"events\" object" % path)
+    groups = {}
+    for name, e in doc["events"].items():
+        if not isinstance(e, dict) or not e.get("channels"):
+            continue
+        g = str(e.get("voice_group") or name)
+        chans = [str(c) for c in e["channels"]]
+        if not NAME.match(g) or not all(SNOWFLAKE.match(c) for c in chans):
+            raise ValueError("%s: event %r has a bad voice_group or channel ID" % (path, name))
+        groups.setdefault(g, [])
+        groups[g] += [c for c in chans if c not in groups[g]]
+    return groups
+
+
+def load_settings(env):
+    """(guild, groups) from the environment and, if set, VOICE_SCHEDULE_FILE."""
+    guild = env.get("VOICE_GUILD_ID", "").strip()
+    spec = env.get("VOICE_GROUPS", "").strip()
+    groups = parse_groups(spec) if spec else {}
+    path = env.get("VOICE_SCHEDULE_FILE", "").strip()
+    if path:
+        s_groups = schedule_groups(path)
+        both = sorted(set(groups) & set(s_groups))
+        if both:
+            raise ValueError("group(s) %s are in VOICE_GROUPS and in %s; keep each in one place"
+                             % (", ".join(both), path))
+        groups.update(s_groups)
+    if not groups:
+        raise ValueError("no voice groups: set VOICE_GROUPS or VOICE_SCHEDULE_FILE")
+    return guild, groups
 
 
 def fetch_widget(guild_id, timeout=10):
@@ -130,14 +172,26 @@ def write_atomic(path, doc):
 
 
 def main():
-    guild = os.environ.get("VOICE_GUILD_ID", "").strip()
+    out_path = os.environ.get("VOICE_OUT", "/var/www/html/live/voice.json")
+    prev = load_previous(out_path)
+    try:
+        guild, groups = load_settings(os.environ)
+    except (OSError, ValueError) as e:
+        # A shared schedule file that is briefly missing or broken shouldn't stop the counts:
+        # keep the groups (and their channels) from the last voice.json, and say so in the log.
+        last = {n: sorted((g.get("channels") or {}).keys()) for n, g in (prev.get("groups") or {}).items()
+                if isinstance(g, dict)}
+        last = {n: c for n, c in last.items() if c and NAME.match(n) and all(SNOWFLAKE.match(x) for x in c)}
+        guild = os.environ.get("VOICE_GUILD_ID", "").strip()
+        if not os.environ.get("VOICE_SCHEDULE_FILE") or not last:
+            print("settings problem: %s" % e, file=sys.stderr)
+            return 2
+        print("settings problem: %s; using the groups from the last voice.json" % e, file=sys.stderr)
+        groups = last
     if not SNOWFLAKE.match(guild):
         print("VOICE_GUILD_ID missing or invalid", file=sys.stderr)
         return 2
-    groups = parse_groups(os.environ.get("VOICE_GROUPS", ""))
-    out_path = os.environ.get("VOICE_OUT", "/var/www/html/live/voice.json")
     grace = float(os.environ.get("VOICE_GRACE_SECONDS", "600"))
-    prev = load_previous(out_path)
     now = time.time()
     try:
         widget = fetch_widget(guild)

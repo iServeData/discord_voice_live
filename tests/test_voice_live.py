@@ -47,3 +47,45 @@ def test_bad_groups_rejected():
 def test_atomic_write(tmp_path):
     p = tmp_path / "voice.json"; v.write_atomic(str(p), {"version": 1}); assert json.loads(p.read_text()) == {"version": 1}
     assert oct(os.stat(p).st_mode & 0o777) == "0o644" and len(os.listdir(tmp_path)) == 1
+
+
+# ---------------------------------------------------------------- shared schedule file
+A, B, C = "000000000000000031", "000000000000000032", "000000000000000033"
+
+
+def sched(tmp, events):
+    p = tmp / "schedule.json"
+    p.write_text(json.dumps({"timezone": "UTC", "events": events}))
+    return str(p)
+
+
+def test_groups_from_schedule_file(tmp_path):
+    path = sched(tmp_path, {"seeds": {"channels": [A, B]}, "seeds-am": {"voice_group": "seeds", "channels": [B, C]},
+                            "friday": {"channels": [C]}, "launch": {"slots": []}})
+    guild, groups = v.load_settings({"VOICE_GUILD_ID": "0" * 17 + "1", "VOICE_SCHEDULE_FILE": path})
+    assert groups == {"seeds": [A, B, C], "friday": [C]}
+
+
+def test_schedule_file_and_env_groups_combine_but_never_overlap(tmp_path):
+    path = sched(tmp_path, {"seeds": {"channels": [A]}})
+    _, groups = v.load_settings({"VOICE_GROUPS": "other=%s" % C, "VOICE_SCHEDULE_FILE": path})
+    assert groups == {"other": [C], "seeds": [A]}
+    try:
+        v.load_settings({"VOICE_GROUPS": "seeds=%s" % C, "VOICE_SCHEDULE_FILE": path})
+        assert False, "overlap should fail"
+    except ValueError as e:
+        assert "keep each in one place" in str(e)
+
+
+def test_broken_schedule_file_keeps_last_groups(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "voice.json"
+    out.write_text(json.dumps({"version": 1, "groups": {"seeds": {"listed": True, "count": 0, "channels": {A: 0, B: 0}}}}))
+    (tmp_path / "schedule.json").write_text("{ not json")
+    monkeypatch.setattr(v, "fetch_widget", lambda g: {"channels": [{"id": A}, {"id": B}], "members": [{"channel_id": A}]})
+    for k, val in {"VOICE_GUILD_ID": "0" * 17 + "1", "VOICE_OUT": str(out), "VOICE_GROUPS": "",
+                   "VOICE_SCHEDULE_FILE": str(tmp_path / "schedule.json")}.items():
+        monkeypatch.setenv(k, val)
+    assert v.main() == 0
+    doc = json.loads(out.read_text())
+    assert doc["groups"]["seeds"]["count"] == 1 and set(doc["groups"]["seeds"]["channels"]) == {A, B}
+    assert "using the groups from the last voice.json" in capsys.readouterr().err

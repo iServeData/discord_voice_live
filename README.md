@@ -56,7 +56,8 @@ VOICE_GROUPS=friday=000000000000000011;tactical=000000000000000021,0000000000000
 VOICE_GRACE_SECONDS=600
 ```
 
-A group's count is the total of its channels. People can leave and come back within `VOICE_GRACE_SECONDS`
+Instead of `VOICE_GROUPS`, the groups can come from a shared schedule file with
+`VOICE_SCHEDULE_FILE` (see "Shared schedule file" below). A group's count is the total of its channels. People can leave and come back within `VOICE_GRACE_SECONDS`
 without starting a new session. Copy IDs with Discord's Developer Mode (right-click → Copy ID).
 
 The output format is described in [docs/voice_json.md](docs/voice_json.md).
@@ -102,6 +103,39 @@ An event only posts from real voice data. If the data is missing or older than f
 quiet; there is no "scheduled time" fallback, so it never announces an empty session. The widget is
 cached by Discord for a few minutes, so posts trail actual attendance by roughly five to seven minutes,
 and invisible members aren't counted.
+
+## Shared schedule file (optional)
+
+If a website shows the same schedule, keep the days and times in one file that both read, instead
+of copying them. Point `events.json` at it with `schedule_file`; each event then takes its schedule
+from the event with the same name there (or the one named by `schedule_event`):
+
+```json
+{
+  "schedule_file": "/var/www/example/data/schedule.json",
+  "events": {
+    "tactical": { "server_status_file": "/var/www/example/wardogs/data/status.json" },
+    "friday":   { "enabled": false }
+  }
+}
+```
+
+- The schedule file has the same layout as `events.json` (`timezone`, then `events`). Other keys in
+  it, such as calendar text for the website, are ignored.
+- These keys can live in either file, but not both: `timezone`, `title`, `voice_group`, `slots`,
+  `early_minutes`, `window_minutes`, `cap_minutes`, `grace_minutes`, `channels`, `url`, `seed_goal`.
+  Setting one in both is an error, so there is only ever one place to change it.
+- Server-side keys stay in `events.json`: `server_status_file`, `min_voice`, `webhook_env`, `enabled`.
+- The file is read on every run, so a change takes effect within a minute. If it is missing or
+  broken, the announcer logs why and posts nothing until it is fixed.
+- `sudo bash deploy/announce_check.sh` shows each event's slots and which file they came from.
+
+The voice collector can read the same file: set `VOICE_SCHEDULE_FILE` in `voice.env` and every
+event with `channels` becomes a group (named by `voice_group`, else the event name). You can still
+add groups in `VOICE_GROUPS`, but a group in both is an error. If the file is briefly missing or
+broken, the collector keeps the groups from the last `voice.json` and logs the problem.
+
+See `config/schedule.json.example`.
 
 ## Announcer settings (`announce.env`, mode 600)
 

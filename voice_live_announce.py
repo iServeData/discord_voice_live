@@ -12,6 +12,8 @@ UPDATE_MIN minutes). When the session ends it edits the post to "ended" with the
 and the next start time. Edits never ping anyone.
 
 Events (schedules, windows, links) come from EVENTS_FILE (see config/events.json.example).
+EVENTS_FILE can point at a shared schedule file with "schedule_file", so a website and this
+announcer read the same days and times (see the README, "Shared schedule file").
 Standard library only. Run by voice-live-announce.timer once a minute.
   --dry-run   print what it would do, change nothing
   --test      post a one-off test message to the webhook and exit
@@ -33,7 +35,7 @@ DAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 SNOWFLAKE = re.compile(r"^\d{17,20}$")
 HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
-UA = "voice-live-announce/1.1 (+https://github.com/iServeData/discord_voice_live)"
+UA = "voice-live-announce/1.2 (+https://github.com/iServeData/discord_voice_live)"
 
 ENV = os.environ.get
 WEBHOOK = ENV("WEBHOOK_URL", "").strip()
@@ -57,8 +59,14 @@ def log(*a):
 
 
 # --------------------------------------------------------------------------- events file
-def load_events(path):
-    """Read and validate the events file. Returns (timezone, {name: event})."""
+# Keys a shared schedule file can own. Each one may be set in the schedule file or in events.json,
+# never both, so there is only ever one place to change it.
+SCHEDULE_KEYS = ("title", "voice_group", "slots", "early_minutes", "window_minutes", "cap_minutes",
+                 "grace_minutes", "channels", "url", "seed_goal")
+
+
+def read_doc(path):
+    """Read a JSON file that has an "events" object."""
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
@@ -68,10 +76,26 @@ def load_events(path):
         raise ConfigError(f"{path} isn't valid JSON: {e}") from None
     if not isinstance(doc, dict) or not isinstance(doc.get("events"), dict) or not doc["events"]:
         raise ConfigError(f"{path}: needs an \"events\" object with at least one event")
+    return doc
+
+
+def load_events(path):
+    """Read and validate the events file (plus its schedule file, if it names one).
+    Returns (timezone, {name: event}). Each event also records where its schedule came from."""
+    doc = read_doc(path)
+    sched_path = doc.get("schedule_file")
+    sched = None
+    if sched_path is not None:
+        if not isinstance(sched_path, str) or not sched_path.startswith("/"):
+            raise ConfigError(f"{path}: schedule_file must be an absolute path")
+        sched = read_doc(sched_path)
+        if "timezone" in doc and "timezone" in sched:
+            raise ConfigError(f"{path}: timezone is set here and in {sched_path}; keep it in one place")
+    tz_name = (sched if sched and "timezone" in sched else doc).get("timezone", "UTC")
     try:
-        tz = ZoneInfo(str(doc.get("timezone", "UTC")))
+        tz = ZoneInfo(str(tz_name))
     except (ZoneInfoNotFoundError, ValueError):
-        raise ConfigError(f"{path}: unknown timezone {doc.get('timezone')!r}") from None
+        raise ConfigError(f"{path}: unknown timezone {tz_name!r}") from None
     events = {}
     for name, e in doc["events"].items():
         where = f"{path}: event {name!r}"
@@ -79,6 +103,17 @@ def load_events(path):
             raise ConfigError(f"{where}: names are lowercase letters, digits, - or _")
         if e.get("enabled", True) is False:
             continue
+        source = path
+        if sched is not None:
+            sname = str(e.get("schedule_event") or name)
+            se = sched["events"].get(sname)
+            if not isinstance(se, dict):
+                raise ConfigError(f"{where}: no event {sname!r} in {sched_path}")
+            both = sorted(k for k in SCHEDULE_KEYS if k in e and k in se)
+            if both:
+                raise ConfigError(f"{where}: {', '.join(both)} set here and in {sched_path}; keep each in one place")
+            e = {**{k: se[k] for k in SCHEDULE_KEYS if k in se}, **e}
+            source = f"{sched_path} ({sname})"
         slots = []
         for s in e.get("slots") or []:
             m = HHMM.match(str(s.get("time", ""))) if isinstance(s, dict) else None
@@ -94,7 +129,8 @@ def load_events(path):
               "status_file": e.get("server_status_file") or None,
               "seed_goal": e.get("seed_goal"),
               "min_voice": int(e.get("min_voice", MIN_VOICE)),
-              "webhook_env": str(e.get("webhook_env") or f"{name.upper().replace('-', '_')}_WEBHOOK_URL")}
+              "webhook_env": str(e.get("webhook_env") or f"{name.upper().replace('-', '_')}_WEBHOOK_URL"),
+              "source": source}
         for key, default, lo, hi in (("early_minutes", 15, 0, 120), ("window_minutes", 30, 1, 720),
                                      ("cap_minutes", 120, 1, 1440), ("grace_minutes", 10, 1, 120)):
             v = e.get(key, default)
@@ -107,6 +143,8 @@ def load_events(path):
             raise ConfigError(f"{where}: url must start with https://")
         if not NAME.match(ev["group"]) or not all(SNOWFLAKE.match(c) for c in ev["channels"]):
             raise ConfigError(f"{where}: voice_group must be a group name from VOICE_GROUPS; channels are IDs")
+        if ev["seed_goal"] is not None and (not isinstance(ev["seed_goal"], int) or ev["seed_goal"] < 1):
+            raise ConfigError(f"{where}: seed_goal must be a whole number of players")
         if ev["min_voice"] < 1:
             raise ConfigError(f"{where}: min_voice must be at least 1")
         events[name] = ev
@@ -194,6 +232,12 @@ def best_channel(ev, g):
         if (g["channels"].get(cid) or 0) > (g["channels"].get(best) or 0):
             best = cid
     return best
+
+
+def slot_text(ev):
+    """'thu 19:00, sat 10:00' for --check output."""
+    names = {v: k for k, v in DAYS.items()}
+    return ", ".join(f"{'/'.join(names[d] for d in days)} {hh:02d}:{mm:02d}" for days, hh, mm in ev["slots"])
 
 
 def dur(sec):
@@ -288,8 +332,8 @@ def run(now=None):
     if "--check" in sys.argv:
         for e in events.values():
             hook = hook_for(e)
-            log(f"{e['name']}: {e['title']!r}, voice group {e['group']!r}, {len(e['slots'])} slot(s), "
-                f"webhook {'set' if valid_hook(hook) else 'MISSING'}")
+            log(f"{e['name']}: {e['title']!r}, voice group {e['group']!r}, {slot_text(e)} ({tz.key}), "
+                f"webhook {'set' if valid_hook(hook) else 'MISSING'}; schedule from {e['source']}")
         return 0 if events and all(valid_hook(hook_for(e)) for e in events.values()) else 1
     if not valid_hook(WEBHOOK) and not DRY:
         log("WEBHOOK_URL missing or not a Discord webhook URL; nothing to do")
