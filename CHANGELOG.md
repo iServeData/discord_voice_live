@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (unreleased)
+## 1.2.0 (2026-10-23)
 
 - Shared schedule file: `events.json` can name a `schedule_file` that holds the schedule keys
   (timezone, slots, windows, channels, link, seed goal), so a website and the announcer read the
