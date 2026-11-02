@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- CONTRIBUTING.md: how to run the tests and what must never be committed.
+
 ## 1.2.0 (2026-10-23)
 
 - Shared schedule file: `events.json` can name a `schedule_file` that holds the schedule keys
